@@ -1,43 +1,81 @@
-// Modules to control application life and create native browser window
-const {app, BrowserWindow} = require('electron')
-const path = require('path')
+const {app,BrowserWindow,ipcMain,dialog,Menu} = require('electron')
+const Store = require('electron-store');
+const DataStore = require('./MusicDataStore')
+const myStore = new DataStore({'name':'Music Data'})
 
-function createWindow () {
-  // Create the browser window.
-  const mainWindow = new BrowserWindow({
-    width: 800,
-    height: 600,
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.js')
+
+
+
+class AppWindow extends BrowserWindow{
+    constructor(config,fileLocation){
+        
+        const basicConfig = {
+            width:800,
+            height:600,
+            webPreferences:{
+                nodeIntegration:true,
+                contextIsolation: false
+            }
+        }
+        //const finalConfig = Object.assign(basicConfig, config)
+        const finalConfig ={...basicConfig,...config}
+        super(finalConfig)
+        this.loadFile(fileLocation)
+        this.once('ready-to-show', () => {
+            this.show()
+        })
+
     }
-  })
-
-  // and load the index.html of the app.
-  mainWindow.loadFile('index.html')
-
-  // Open the DevTools.
-  // mainWindow.webContents.openDevTools()
 }
 
-// This method will be called when Electron has finished
-// initialization and is ready to create browser windows.
-// Some APIs can only be used after this event occurs.
-app.whenReady().then(() => {
-  createWindow()
-  
-  app.on('activate', function () {
-    // On macOS it's common to re-create a window in the app when the
-    // dock icon is clicked and there are no other windows open.
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
-  })
-})
+app.on('ready',()=>{
+    
+    const mainWindow = new AppWindow({},'./renderer/index.html')
+    //mainWindow.loadFile('./renderer/index.html')
+    // 隐藏菜单栏 
+    Menu.setApplicationMenu(null)
+    mainWindow.webContents.openDevTools();
+    mainWindow.webContents.on('did-finish-load',() =>{
+        mainWindow.send('getTracks',myStore.getTracks())
+    })
+     ipcMain.on ('add-music-window',() => {
+        const addWindow = new AppWindow({
+            width:400,
+            height:300,
+            parent : mainWindow
+        },'./renderer/add.html')
+      
+       // addWindow.loadFile('./renderer/add.html')
+         // event.sender.send('reply','yes')
+        // addWindow.send('reply','yes')
+     })
+     ipcMain.on ('music-track',(event,tracks)=>{
+        const updatedTracks = myStore.addTracks(tracks).getTracks()
+        mainWindow.send('getTracks', updatedTracks)
+     })
 
-// Quit when all windows are closed, except on macOS. There, it's common
-// for applications and their menu bar to stay active until the user quits
-// explicitly with Cmd + Q.
-app.on('window-all-closed', function () {
-  if (process.platform !== 'darwin') app.quit()
-})
+     ipcMain.on ('open-music-file',(event)=>{
+         dialog.showOpenDialog({
+             properties:['openFile','multiSelections'],
+             filters: [{ name: 'Musaic', extensions: ['wav', 'mp3' ,'flac'] }]
 
-// In this file you can include the rest of your app's specific main process
-// code. You can also put them in separate files and require them here.
+         }).then(result => {
+            //console.log(result)
+            if(result){
+                event.sender.send('selected-files',result.filePaths)
+            }
+           // console.log(result.canceled)
+           // console.log(result.filePaths)
+          }).catch(err => {
+            console.log(err)
+          })
+     })
+
+     ipcMain.on ('delete-track',(event,id)=>{
+        const updatedTracks = myStore.deleteTracks(id).getTracks()
+        mainWindow.send('getTracks', updatedTracks)
+     })
+
+
+    
+})
